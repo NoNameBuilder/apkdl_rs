@@ -49,15 +49,25 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
     }
     let base = base.ok_or_else(|| "no APK found in bundle".to_string())?;
     if splits.is_empty() { fs::copy(&base, out).map_err(|e| format!("copy: {e}"))?; return Ok(()); }
+
     log.push(format!("Merging {} split(s)...", splits.len()));
-    let work = TempDir::new().map_err(|e| format!("work: {e}"))?;
+    let work = match TempDir::new() {
+        Ok(t) => t,
+        Err(_) => { fs::copy(&base, out).map_err(|e| format!("copy: {e}"))?; return Ok(()); }
+    };
     let base_dir = work.path().join("base");
-    run_status(Command::new("apktool").args(["d", "-f", &base.to_string_lossy(), "-o", &base_dir.to_string_lossy()]))?;
+    let base_ok = run_status(Command::new("apktool").args(["d", "-f", &base.to_string_lossy(), "-o", &base_dir.to_string_lossy()]));
+    if base_ok.is_err() {
+        log.push("Base APK cannot be merged — saving only base".into());
+        fs::copy(&base, out).map_err(|e| format!("copy: {e}"))?; return Ok(());
+    }
     for (i, sp) in splits.iter().enumerate() {
         log.push(format!("Split {}/{}: {}", i + 1, splits.len(), sp.file_name().unwrap().to_string_lossy()));
         let sd = work.path().join("split");
         if sd.exists() { fs::remove_dir_all(&sd).ok(); }
-        run_status(Command::new("apktool").args(["d", "-f", &sp.to_string_lossy(), "-o", &sd.to_string_lossy()]))?;
+        if run_status(Command::new("apktool").args(["d", "-f", &sp.to_string_lossy(), "-o", &sd.to_string_lossy()])).is_err() {
+            log.push(format!("  Skipped (not a mergeable split)")); continue;
+        }
         for ent in walkdir(&sd).into_iter().filter(|e| e.to_string_lossy().contains("smali")) {
             let rel = ent.strip_prefix(&sd).unwrap(); let dst = base_dir.join(rel);
             if ent.is_dir() { fs::create_dir_all(&dst).ok(); }

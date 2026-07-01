@@ -19,7 +19,19 @@ pub fn stream_download_to(client: &Client, url: &str, part_path: &Path, log: &mu
     if let Some(ck) = cookies { req = req.header(COOKIE, ck); }
     let resp = req.send().map_err(|e| format!("HTTP: {e}"))?;
     let total = resp.content_length().unwrap_or(0);
-    if let Some(pb) = progress { pb.set_length(total); }
+    if let Some(pb) = progress {
+        if total > 0 {
+            pb.set_length(total);
+            pb.set_style(ProgressStyle::default_bar()
+                .template("{msg} [{bar:30}] {bytes}/{total_bytes} ({eta})")
+                .unwrap_or_else(|_| ProgressStyle::default_bar()));
+        } else {
+            pb.set_style(ProgressStyle::default_bar()
+                .template("{msg} [{bar:30}] {bytes}")
+                .unwrap_or_else(|_| ProgressStyle::default_bar()));
+            pb.set_length(!0); // unknown max -> shows bytes only
+        }
+    }
     let status = resp.status();
     let (file, resumed) = if status.as_u16() == 206 && existing_sz > 0 {
         (OpenOptions::new().append(true).open(part_path).map_err(|e| format!("append: {e}"))?, true)
@@ -145,9 +157,6 @@ json.dump(out,sys.stdout)
         log.push(format!("  [{}/{}] {}...", i+1, urls.len(), dest.file_name().unwrap_or_default().to_string_lossy()));
         let part = dest.with_extension("part");
         let pb = ProgressBar::new(0);
-        pb.set_style(ProgressStyle::default_bar()
-            .template("{msg} [{bar:30}] {bytes}/{total_bytes} ({eta})")
-            .unwrap_or_else(|_| ProgressStyle::default_bar()));
         pb.set_message(dest.file_name().unwrap_or_default().to_string_lossy().to_string());
         match stream_download_to(client, url, &part, log, if cookie_hdr.is_empty() { None } else { Some(&cookie_hdr) }, Some(&pb)) {
             Ok((sz, _)) if sz > 50_000 => {
