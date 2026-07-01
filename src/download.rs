@@ -163,13 +163,30 @@ json.dump(out,sys.stdout)
         }
     }
 
-    // Save raw split APKs to output path (no merge — just use adb install-multiple)
-    let _ = fs::remove_file(tmp);
-    if dl_dir.read_dir().map(|e| e.count()).unwrap_or(0) == 0 {
-        return Err("no APK files downloaded".into());
+    // Merge splits into single APK
+    let merged_tmp = dl_dir.join(".merged.apk");
+    let sp = ProgressBar::new_spinner();
+    sp.set_style(ProgressStyle::default_spinner());
+    sp.set_message("Merging splits...");
+    let result = crate::extract::merge_apk_dir(&dl_dir, &merged_tmp, arch, log);
+    sp.finish_and_clear();
+    match result {
+        Ok(()) => {
+            let merged_out = tmp.with_extension(".merged.apk");
+            fs::rename(&merged_tmp, &merged_out).ok();
+            if dl_dir.is_dir() { fs::remove_dir_all(dl_dir).ok(); }
+            fs::rename(&merged_out, tmp).map_err(|e| format!("rename: {e}"))?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&merged_tmp);
+            // Merge failed — save raw splits as directory
+            let _ = fs::remove_file(tmp);
+            if dl_dir.is_dir() { fs::rename(dl_dir, tmp).map_err(|e| format!("rename splits: {e}"))?; }
+            log.push(format!("Merge failed, raw splits at {}", tmp.display()));
+            Ok(())
+        }
     }
-    if dl_dir.is_dir() { fs::rename(dl_dir, tmp).map_err(|e| format!("rename: {e}"))?; }
-    Ok(())
 }
 
 pub fn dl_apkpure(client: &Client, pkg: &str, tmp: &Path, arch: &str, version_url: Option<&str>, log: &mut Vec<String>) -> Result<(), String> {
