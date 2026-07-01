@@ -21,11 +21,10 @@ pub fn stream_download_to(client: &Client, url: &str, part_path: &Path, log: &mu
     let total = resp.content_length().unwrap_or(0);
     if let Some(pb) = progress {
         pb.set_length(total);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template(" {bytes}/{total_bytes}  {wide_bar:.cyan/blue}  {eta}")
-                .unwrap_or_else(|_| ProgressStyle::default_bar())
-        );
+        let style = ProgressStyle::default_bar()
+            .template("{msg} [{bar:30}] {bytes}/{total_bytes} ({eta})")
+            .unwrap_or_else(|_| ProgressStyle::default_bar());
+        pb.set_style(style);
         pb.tick();
     }
     let status = resp.status();
