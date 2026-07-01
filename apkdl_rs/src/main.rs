@@ -87,21 +87,26 @@ fn run_cli(client: &Client, cfg: &config::Config, args: &[String]) -> Result<(),
     } else {
         let results = search_play(client, &query);
         if results.is_empty() { return Err(format!("No results for \"{query}\"")); }
-        for (i, (title, pkg)) in results.iter().enumerate().take(5) {
-            println!("{}. {} ({})", i + 1, title, pkg);
+        for (i, (t, p)) in results.iter().enumerate().take(10) {
+            println!("{}. {} ({})", i + 1, t, p);
         }
+        let pick = |idx: usize| -> String {
+            let (t, p) = &results[idx.min(results.len() - 1)];
+            // search_play returns (text, package) but Google Play HTML is inconsistent
+            // — pick whichever element looks like a package name
+            if p.contains('.') { p.clone() } else if t.contains('.') { t.clone() } else { p.clone() }
+        };
         if results.len() > 1 {
-            print!("Choice [1-{}, default=1]: ", results.len().min(5));
+            print!("Choice [1-{}, default=1]: ", results.len().min(10));
             std::io::Write::flush(&mut std::io::stdout()).map_err(|e| format!("flush: {e}"))?;
             let mut choice = String::new();
             std::io::stdin().read_line(&mut choice).map_err(|e| format!("read: {e}"))?;
-            let idx = choice.trim().parse::<usize>().unwrap_or(1).saturating_sub(1).min(results.len() - 1);
-            results[idx].1.clone()
+            let idx = choice.trim().parse::<usize>().unwrap_or(1).saturating_sub(1);
+            pick(idx)
         } else {
-            results[0].1.clone()
+            pick(0)
         }
     };
-
     println!("Package: {pkg}");
 
     // Set up temp workspace
