@@ -109,9 +109,9 @@ impl App {
         };
 
         let sources: [(&str, fn(&Client, &str, &Path, &str, Option<&str>, &mut Vec<String>) -> Result<(), String>); 3] = [
-            ("Google Play", dl_gplay),
-            ("APKPure", dl_apkpure),
-            ("APKMirror", dl_apkmirror),
+        ("Google Play", dl_gplay),
+        ("APKMirror", dl_apkmirror),
+        ("APKPure", dl_apkpure),
         ];
         let mut last_err = "no source tried".to_string();
         for (name, func) in &sources {

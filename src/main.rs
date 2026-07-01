@@ -23,7 +23,7 @@ use crate::util::TEMP_PREFIX;
 fn main() {
     let cfg = load_config();
     let matches = ClapCmd::new("apkdl")
-        .about("APK downloader — Google Play · APKPure · APKMirror")
+        .about("APK downloader — Google Play · APKMirror · APKPure")
         .version("3.0")
         .arg(Arg::new("query").help("App name or package").num_args(1..).trailing_var_arg(true))
         .arg(Arg::new("install").long("install").help("Install apkdl binary to system PATH").action(ArgAction::SetTrue))
@@ -118,8 +118,8 @@ fn run_cli(client: &Client, cfg: &config::Config, args: &[String]) -> Result<(),
 
     let sources: [(&str, fn(&Client, &str, &Path, &str, Option<&str>, &mut Vec<String>) -> Result<(), String>); 3] = [
         ("Google Play", dl_gplay),
-        ("APKPure", dl_apkpure),
         ("APKMirror", dl_apkmirror),
+        ("APKPure", dl_apkpure),
     ];
 
     let arch = cfg.default_arch.as_deref().unwrap_or("arm64_v8a");
