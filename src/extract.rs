@@ -106,9 +106,11 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
     }
     let sign_result = run_status(Command::new("apksigner").args(["sign", "--ks", &ks_path.to_string_lossy(), "--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android", "--key-pass", "pass:android", &merged.to_string_lossy()]));
     if sign_result.is_err() {
-        // fallback: jarsigner (Java SDK)
-        run_status(Command::new("jarsigner").args(["-sigalg", "SHA1withRSA", "-digestalg", "SHA1", "-keystore", &ks_path.to_string_lossy(), "-storepass", "android", "-keypass", "android", &merged.to_string_lossy(), "androiddebugkey"]))
-            .map_err(|e| format!("sign failed (tried apksigner and jarsigner): {e}"))?;
+        log.push("apksigner not found, trying jarsigner...".into());
+        let jar_result = run_status(Command::new("jarsigner").args(["-sigalg", "SHA1withRSA", "-digestalg", "SHA1", "-keystore", &ks_path.to_string_lossy(), "-storepass", "android", "-keypass", "android", &merged.to_string_lossy(), "androiddebugkey"]));
+        if jar_result.is_err() {
+            log.push("Warning: signing failed — output is unsigned.".into());
+        }
     }
     fs::copy(&merged, out).map_err(|e| format!("copy result: {e}"))?;
     Ok(())
