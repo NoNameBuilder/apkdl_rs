@@ -8,17 +8,16 @@ use zip::ZipArchive;
 
 use crate::util::{run_quiet, run_status, ARCHES};
 
-/// Find APKEditor.jar next to the binary or in current dir
+/// APKEditor.jar — embedded in the binary (7.4 MB)
+const APKEDITOR_JAR: &[u8] = include_bytes!("../APKEditor.jar");
+
+/// Extract embedded APKEditor.jar to a temp path and return its location
 fn apkeditor_path() -> PathBuf {
-    let exe = std::env::current_exe().unwrap_or_default();
-    let candidates = [
-        exe.parent().map(|p| p.join("APKEditor.jar")),
-        Some(PathBuf::from("APKEditor.jar")),
-    ];
-    for c in candidates.iter().flatten() {
-        if c.exists() { return c.clone(); }
+    let path = std::env::temp_dir().join("apkdl_apkeditor.jar");
+    if !path.exists() {
+        let _ = fs::write(&path, APKEDITOR_JAR);
     }
-    PathBuf::from("APKEditor.jar")
+    path
 }
 
 pub fn extract_apkm(path: &Path, out: &Path, arch_filter: &str, log: &mut Vec<String>) -> Result<(), String> {
