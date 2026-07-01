@@ -7,16 +7,19 @@ use regex::bytes::Regex as BytesRegex;
 use reqwest::blocking::Client;
 use reqwest::header::{RANGE, COOKIE};
 use scraper::{Html, Selector};
+use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::extract::extract_apkm;
 use crate::util::{as_str, fetch_bytes, ARCHES, VENV_PYTHON};
 
-pub fn stream_download_to(client: &Client, url: &str, part_path: &Path, log: &mut Vec<String>, cookies: Option<&str>) -> Result<(u64, bool), String> {
+pub fn stream_download_to(client: &Client, url: &str, part_path: &Path, log: &mut Vec<String>, cookies: Option<&str>, progress: Option<&indicatif::ProgressBar>) -> Result<(u64, bool), String> {
     let existing_sz = if part_path.exists() { fs::metadata(part_path).map(|m| m.len()).unwrap_or(0) } else { 0 };
     let mut req = client.get(url);
     if existing_sz > 0 { req = req.header(RANGE, format!("bytes={existing_sz}-")); }
     if let Some(ck) = cookies { req = req.header(COOKIE, ck); }
     let resp = req.send().map_err(|e| format!("HTTP: {e}"))?;
+    let total = resp.content_length().unwrap_or(0);
+    if let Some(pb) = progress { pb.set_length(total); }
     let status = resp.status();
     let (file, resumed) = if status.as_u16() == 206 && existing_sz > 0 {
         (OpenOptions::new().append(true).open(part_path).map_err(|e| format!("append: {e}"))?, true)
@@ -33,12 +36,14 @@ pub fn stream_download_to(client: &Client, url: &str, part_path: &Path, log: &mu
         if n == 0 { break; }
         writer.write_all(&buf[..n]).map_err(|e| format!("write: {e}"))?;
         written += n as u64;
+        if let Some(pb) = progress { pb.inc(n as u64); }
     }
+    if let Some(pb) = progress { pb.finish_and_clear(); }
     Ok((written, resumed))
 }
 
 pub fn try_download_apk(client: &Client, url: &str, tmp: &Path, arch: &str, part_path: &Path, log: &mut Vec<String>) -> Result<(), String> {
-    match stream_download_to(client, url, part_path, log, None) {
+    match stream_download_to(client, url, part_path, log, None, None) {
         Ok((sz, resumed)) if sz > 50_000 => {
             log.push(format!("Downloaded {:.1} MB{}", sz as f64 / 1_000_000.0, if resumed { " (resumed)" } else { "" }));
             if url.contains(".apkm") || url.contains(".xapk") {
@@ -139,7 +144,12 @@ json.dump(out,sys.stdout)
     for (i, (url, dest)) in urls.iter().enumerate() {
         log.push(format!("  [{}/{}] {}...", i+1, urls.len(), dest.file_name().unwrap_or_default().to_string_lossy()));
         let part = dest.with_extension("part");
-        match stream_download_to(client, url, &part, log, if cookie_hdr.is_empty() { None } else { Some(&cookie_hdr) }) {
+        let pb = ProgressBar::new(0);
+        pb.set_style(ProgressStyle::default_bar()
+            .template("{msg} [{bar:30}] {bytes}/{total_bytes} ({eta})")
+            .unwrap_or_else(|_| ProgressStyle::default_bar()));
+        pb.set_message(dest.file_name().unwrap_or_default().to_string_lossy().to_string());
+        match stream_download_to(client, url, &part, log, if cookie_hdr.is_empty() { None } else { Some(&cookie_hdr) }, Some(&pb)) {
             Ok((sz, _)) if sz > 50_000 => {
                 fs::rename(&part, dest).map_err(|e| format!("rename: {e}"))?;
                 log.push(format!("  ✓ {:.1} MB", sz as f64 / 1_000_000.0));
@@ -149,24 +159,9 @@ json.dump(out,sys.stdout)
         }
     }
 
-    let base_path = dl_dir.join(format!("{pkg}-{vc}.apk"));
-    if base_path.exists() && fs::metadata(&base_path).map(|m| m.len()).unwrap_or(0) > 50_000 {
-        fs::copy(&base_path, tmp).map_err(|e| format!("gplay copy: {e}"))?;
-        return Ok(());
-    }
-    let mut best: Option<PathBuf> = None;
-    if let Ok(entries) = fs::read_dir(&dl_dir) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.extension().and_then(|x| x.to_str()) != Some("apk") { continue; }
-            let sz = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
-            if best.as_ref().map_or(true, |b| fs::metadata(b).map(|m| m.len()).unwrap_or(0) < sz) { best = Some(p); }
-        }
-    }
-    match best {
-        Some(src) => { fs::copy(&src, tmp).map_err(|e| format!("gplay copy: {e}"))?; Ok(()) }
-        None => Err("no APK downloaded from Google Play".into()),
-    }
+    // Merge splits into a single APK (or copy base if no splits)
+    crate::extract::merge_apk_dir(&dl_dir, tmp, arch, log)?;
+    Ok(())
 }
 
 pub fn dl_apkpure(client: &Client, pkg: &str, tmp: &Path, arch: &str, version_url: Option<&str>, log: &mut Vec<String>) -> Result<(), String> {

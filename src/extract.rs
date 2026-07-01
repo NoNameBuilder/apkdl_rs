@@ -22,6 +22,10 @@ pub fn extract_apkm(path: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
         let mut f = File::create(&out_path).map_err(|e| format!("create {name}: {e}"))?;
         io::copy(&mut entry, &mut f).map_err(|e| format!("extract {name}: {e}"))?;
     }
+    merge_apk_dir(dir, out, arch_filter, log)
+}
+
+pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<String>) -> Result<(), String> {
     let entries: Vec<_> = fs::read_dir(dir).map_err(|e| format!("read: {e}"))?.filter_map(|e| e.ok()).collect();
     let mut base: Option<PathBuf> = None;
     let mut splits: Vec<PathBuf> = vec![];
@@ -71,7 +75,12 @@ pub fn extract_apkm(path: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
     if !ks_path.exists() {
         run_status(Command::new("keytool").args(["-genkeypair", "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-keystore", &ks_path.to_string_lossy(), "-storepass", "android", "-keypass", "android", "-dname", "CN=Android Debug,O=Android,C=US"]))?;
     }
-    run_status(Command::new("apksigner").args(["sign", "--ks", &ks_path.to_string_lossy(), "--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android", "--key-pass", "pass:android", &merged.to_string_lossy()]))?;
+    let sign_result = run_status(Command::new("apksigner").args(["sign", "--ks", &ks_path.to_string_lossy(), "--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android", "--key-pass", "pass:android", &merged.to_string_lossy()]));
+    if sign_result.is_err() {
+        // fallback: jarsigner (Java SDK)
+        run_status(Command::new("jarsigner").args(["-sigalg", "SHA1withRSA", "-digestalg", "SHA1", "-keystore", &ks_path.to_string_lossy(), "-storepass", "android", "-keypass", "android", &merged.to_string_lossy(), "androiddebugkey"]))
+            .map_err(|e| format!("sign failed (tried apksigner and jarsigner): {e}"))?;
+    }
     fs::copy(&merged, out).map_err(|e| format!("copy result: {e}"))?;
     Ok(())
 }
