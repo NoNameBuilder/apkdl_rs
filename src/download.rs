@@ -173,14 +173,8 @@ json.dump(out,sys.stdout)
         }
         Err(e) => {
             let _ = fs::remove_file(&merged_tmp);
-            // Merge failed — keep raw splits at dl_dir, rename to tmp
-            log.push(format!("Merge failed ({}), saving raw splits", e));
-            if dl_dir.is_dir() {
-                fs::rename(dl_dir, tmp).map_err(|e| format!("rename splits: {e}"))?;
-            } else {
-                return Err("no APK files downloaded".into());
-            }
-            Ok(())
+            // Merge failed — try next source instead
+            Err(format!("merge failed: {e}"))
         }
     }
 }
