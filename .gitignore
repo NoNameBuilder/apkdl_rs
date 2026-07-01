@@ -1,4 +1,2 @@
-target/
-apkdl
-*.swp
-.DS_Store
+/target
+*.apk
