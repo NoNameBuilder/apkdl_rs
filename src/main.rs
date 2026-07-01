@@ -22,7 +22,7 @@ use crate::update::self_update;
 fn main() {
     let cfg = load_config();
     let matches = ClapCmd::new("apkdl")
-        .about("APK downloader — Google Play · APKMirror · APKPure")
+        .about("APK downloader — Google Play · APKPure · APKMirror")
         .version("3.1")
         .arg(Arg::new("apps").help("App name(s) or package(s)").num_args(0..).trailing_var_arg(true))
         .arg(Arg::new("install").long("install").help("Install apkdl binary to system PATH").action(ArgAction::SetTrue))
@@ -77,8 +77,8 @@ fn run_cli(client: &Client, matches: &clap::ArgMatches) -> Result<(), String> {
 
     let sources: [(&str, fn(&Client, &str, &Path, &str, Option<&str>, &mut Vec<String>) -> Result<(), String>); 3] = [
         ("Google Play", dl_gplay),
-        ("APKMirror", dl_apkmirror),
         ("APKPure", dl_apkpure),
+        ("APKMirror", dl_apkmirror),
     ];
 
     let queries = if apps.is_empty() {

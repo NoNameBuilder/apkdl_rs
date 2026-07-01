@@ -18,6 +18,13 @@ pub fn run_status(cmd: &mut Command) -> Result<(), String> {
     })
 }
 
+pub fn run_quiet(cmd: &mut Command) -> Result<(), String> {
+    cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    cmd.status().map_err(|e| format!("cmd: {e}")).and_then(|s| {
+        if s.success() { Ok(()) } else { Err(format!("exit {s}")) }
+    })
+}
+
 pub fn home_dir() -> PathBuf {
     std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/tmp"))
 }
