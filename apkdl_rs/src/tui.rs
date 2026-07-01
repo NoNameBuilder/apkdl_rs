@@ -94,9 +94,14 @@ impl App {
         let arch_s = arch.to_string();
         self.log.push(format!("Downloading {} (arch: {})...", pkg, arch));
 
-        let tmp_dir = std::env::temp_dir().join(TEMP_PREFIX);
-        fs::create_dir_all(&tmp_dir).ok();
-        let tmp = tmp_dir.join(format!("{}_download_tmp", pkg.replace('.', "_")));
+        // Temp workspace: try system tmp first, fall back to output dir
+        let _tmp_guard = tempfile::TempDir::new().ok();
+        let tmp_root = match _tmp_guard.as_ref() {
+            Some(t) => t.path().to_path_buf(),
+            None => out_dir.clone().unwrap_or_else(|| std::env::temp_dir().join(TEMP_PREFIX)),
+        };
+        fs::create_dir_all(&tmp_root).ok();
+        let tmp = tmp_root.join(format!("{}_download_tmp", pkg.replace('.', "_")));
         let out_name = pkg.to_lowercase().replace('.', "_") + ".apk";
         let out = match &out_dir {
             Some(d) => d.join(&out_name),
@@ -110,7 +115,7 @@ impl App {
         ];
         let mut last_err = "no source tried".to_string();
         for (name, func) in &sources {
-            let src_tmp = tmp_dir.join(format!("{}_tmp", name.replace(' ', "_").to_lowercase()));
+            let src_tmp = tmp_root.join(format!("{}_tmp", name.replace(' ', "_").to_lowercase()));
             match func(&client, &pkg, &src_tmp, &arch_s, version_url.as_deref(), &mut self.log) {
                 Ok(()) => { if src_tmp.exists() { fs::copy(&src_tmp, &tmp).ok(); } last_err.clear(); break; }
                 Err(e) => { self.log.push(format!("{name}: {e}")); last_err = e; }

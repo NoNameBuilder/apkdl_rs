@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-reqwest = { version = "0.12", features = ["blocking"] }
 scraper = "0.22"
 zip = "2"
 tempfile = "3"
@@ -17,3 +16,4 @@ regex = "1"
 toml = "0.8"
 ratatui = "0.29"
 crossterm = "0.28"
+reqwest = { version = "0.13", features = ["blocking"] }
