@@ -88,12 +88,12 @@ fn run_cli(client: &Client, cfg: &config::Config, args: &[String]) -> Result<(),
         let results = search_play(client, &query);
         if results.is_empty() { return Err(format!("No results for \"{query}\"")); }
         for (i, (t, p)) in results.iter().enumerate().take(10) {
-            println!("{}. {} ({})", i + 1, t, p);
+            // search_play tuples are inconsistent — detect which is the package name
+            let (display_title, pkg_name) = if p.contains('.') { (t, p) } else { (p, t) };
+            println!("{}. {} ({})", i + 1, display_title, pkg_name);
         }
         let pick = |idx: usize| -> String {
             let (t, p) = &results[idx.min(results.len() - 1)];
-            // search_play returns (text, package) but Google Play HTML is inconsistent
-            // — pick whichever element looks like a package name
             if p.contains('.') { p.clone() } else if t.contains('.') { t.clone() } else { p.clone() }
         };
         if results.len() > 1 {
