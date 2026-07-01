@@ -18,7 +18,6 @@ use crate::download::{dl_apkpure, dl_apkmirror, dl_gplay};
 use crate::http::build_http;
 use crate::search::{search_play, list_versions_apkmirror, list_versions_apkpure};
 use crate::update::self_update;
-use crate::util::TEMP_PREFIX;
 
 fn main() {
     let cfg = load_config();
@@ -156,61 +155,61 @@ fn download_app(
     force_source: Option<usize>,
     sources: &[(&str, fn(&Client, &str, &Path, &str, Option<&str>, &mut Vec<String>) -> Result<(), String>); 3],
 ) -> Result<(), String> {
-    let out_name = out_spec.map(|s| {
-        let p = Path::new(s);
-        if p.is_dir() || s.ends_with('/') {
-            PathBuf::from(s).join(format!("{}.apk", pkg.split('.').last().unwrap_or(pkg)))
-        } else {
-            p.to_path_buf()
+    let out_name = match out_spec {
+        Some(s) => {
+            let p = Path::new(s);
+            if p.is_dir() || s.ends_with('/') {
+                p.join(format!("{}.apk", pkg.split('.').last().unwrap_or(pkg)))
+            } else {
+                p.to_path_buf()
+            }
         }
-    }).unwrap_or_else(|| PathBuf::from(format!("{}.apk", pkg.split('.').last().unwrap_or(pkg))));
+        None => PathBuf::from(format!("{}.apk", pkg.split('.').last().unwrap_or(pkg))),
+    };
+    if let Some(p) = out_name.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
 
-    let _tmp_guard = tempfile::TempDir::new().ok();
-    let tmp_root = _tmp_guard.as_ref().map(|t| t.path().to_path_buf())
-        .unwrap_or_else(|| std::env::temp_dir().join(TEMP_PREFIX));
-    std::fs::create_dir_all(&tmp_root).ok();
-    let tmp = tmp_root.join(format!("{}_download_tmp", pkg.replace('.', "_")));
+    let mut tried: Vec<usize> = (0..sources.len()).collect();
+    if let Some(i) = force_source {
+        if i < sources.len() { tried = vec![i]; }
+    }
 
-    let mut last_err = String::from("no source tried");
-
-    if let Some(idx) = force_source {
-        let (name, func) = &sources[idx];
+    for &idx in &tried {
+        let (name, func) = sources[idx];
         print!("  {name}...");
-        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        std::io::Write::flush(&mut std::io::stdout()).unwrap_or(());
         let sp = ProgressBar::new_spinner();
         sp.set_style(ProgressStyle::default_spinner());
-        let src_tmp = tmp_root.join(format!("{}_tmp", name.replace(' ', "_").to_lowercase()));
-        match func(client, pkg, &src_tmp, arch, None, &mut Vec::new()) {
-            Ok(()) => { sp.finish_and_clear(); println!(" ✓"); last_err.clear(); if src_tmp.is_dir() { let _ = std::fs::remove_dir_all(&tmp); std::fs::create_dir_all(&tmp).ok(); let _ = crate::extract::cp_dir(&src_tmp, &tmp); } else if src_tmp.exists() { std::fs::copy(&src_tmp, &tmp).ok(); } }
-            Err(e) => { sp.finish_and_clear(); println!(" ✗ {e}"); last_err = e; }
-        }
-    } else {
-        for (name, func) in sources {
-            print!("  {name}...");
-            std::io::Write::flush(&mut std::io::stdout()).unwrap();
-            let sp = ProgressBar::new_spinner();
-            sp.set_style(ProgressStyle::default_spinner());
-            let src_tmp = tmp_root.join(format!("{}_tmp", name.replace(' ', "_").to_lowercase()));
-            match func(client, pkg, &src_tmp, arch, None, &mut Vec::new()) {
-            Ok(()) => { sp.finish_and_clear(); println!(" ✓"); last_err.clear(); if src_tmp.is_dir() { let _ = std::fs::remove_dir_all(&tmp); std::fs::create_dir_all(&tmp).ok(); let _ = crate::extract::cp_dir(&src_tmp, &tmp); } else if src_tmp.exists() { std::fs::copy(&src_tmp, &tmp).ok(); } break; }
-                Err(e) => { sp.finish_and_clear(); println!(" ✗ {e}"); last_err = e; }
+        let staging = out_name.with_extension(name.to_lowercase());
+
+        match func(client, pkg, &staging, arch, None, &mut Vec::new()) {
+            Ok(()) => {
+                sp.finish_and_clear();
+                if staging.is_dir() {
+                    let _ = std::fs::remove_dir_all(&out_name);
+                    std::fs::rename(&staging, &out_name).unwrap_or(());
+                } else if staging.exists() {
+                    let _ = std::fs::remove_file(&out_name);
+                    std::fs::rename(&staging, &out_name).unwrap_or(());
+                }
+                println!(" ✓");
+                if out_name.is_dir() {
+                    let count = std::fs::read_dir(&out_name).map(|e| e.count()).unwrap_or(0);
+                    println!("  ✓ {} ({} files)", out_name.display(), count);
+                } else if out_name.exists() {
+                    let sz = std::fs::metadata(&out_name).map(|m| m.len()).unwrap_or(0);
+                    println!("  ✓ {} ({:.1} MB)", out_name.display(), sz as f64 / 1_000_000.0);
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                sp.finish_and_clear();
+                if staging.is_dir() { let _ = std::fs::remove_dir_all(&staging); }
+                else { let _ = std::fs::remove_file(&staging); }
+                println!(" ✗ {e}");
             }
         }
     }
-
-    if !last_err.is_empty() { return Err(last_err); }
-
-    if let Some(p) = out_name.parent() { let _ = std::fs::create_dir_all(p); }
-    if tmp.is_dir() {
-        // Output is a directory of split APKs (merge failed/skipped)
-        let _ = std::fs::remove_dir_all(&out_name);
-        std::fs::create_dir_all(&out_name).ok();
-        crate::extract::cp_dir(&tmp, &out_name);
-        println!("  ✓ {} ({} files)", out_name.display(), std::fs::read_dir(&out_name).map(|e| e.count()).unwrap_or(0));
-    } else {
-        std::fs::copy(&tmp, &out_name).map_err(|e| format!("write {}: {e}", out_name.display()))?;
-        let sz = std::fs::metadata(&out_name).map(|m| m.len()).unwrap_or(0);
-        println!("  ✓ {} ({:.1} MB)", out_name.display(), sz as f64 / 1_000_000.0);
-    }
-    Ok(())
+    Err("all sources failed".into())
 }
