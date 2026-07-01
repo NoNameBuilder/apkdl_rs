@@ -132,7 +132,7 @@ json.dump(out,sys.stdout)
 "#;
     let out = Command::new(python)
         .arg("-c").arg(script)
-        .arg("--").arg(pkg).arg(arch_flag)
+        .arg(pkg).arg(arch_flag)
         .output().map_err(|e| format!("python: {e}"))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
