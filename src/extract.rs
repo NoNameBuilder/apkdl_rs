@@ -58,7 +58,7 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
     let base_dir = work.path().join("base");
     let base_ok = {
         let mut cmd = Command::new("apktool");
-        cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
+        cmd.env("JAVA_OPTS", "-Xmx1G -Xms512M");
         cmd.args(["d", "-f", &base.to_string_lossy(), "-o", &base_dir.to_string_lossy()]);
         run_status(&mut cmd)
     };
@@ -72,7 +72,7 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
         if sd.exists() { fs::remove_dir_all(&sd).ok(); }
         let split_ok = {
             let mut cmd = Command::new("apktool");
-            cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
+            cmd.env("JAVA_OPTS", "-Xmx1G -Xms512M");
             cmd.args(["d", "-f", &sp.to_string_lossy(), "-o", &sd.to_string_lossy()]);
             run_status(&mut cmd)
         };
@@ -111,7 +111,7 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
     let merged = work.path().join("merged-unsigned.apk");
     {
         let mut cmd = Command::new("apktool");
-        cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
+        cmd.env("JAVA_OPTS", "-Xmx1G -Xms512M");
         cmd.args(["b", "-f", &base_dir.to_string_lossy(), "-o", &merged.to_string_lossy()]);
         run_status(&mut cmd)?;
     }
