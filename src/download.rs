@@ -64,70 +64,27 @@ pub fn dl_gplay(client: &Client, pkg: &str, tmp: &Path, arch: &str, _vu: Option<
     // gplaydl download_batch hangs on large splits — get URLs via its API, download via reqwest
     // Uses randomized device profiles from gplaydl's profiles directory to avoid fingerprinting
     let script = r#"
-import json, sys, os, random
-from gplaydl.auth import ensure_auth, fetch_token
+import json, sys
+from gplaydl.auth import ensure_auth
 from gplaydl.api import get_details, get_delivery, purchase, AuthExpiredError, PlayAPIError
-from gplaydl.profiles import load_all_profiles, ARM64_PROFILES, ARMV7_PROFILES
 
 pkg, arch_flag = sys.argv[1], sys.argv[2]
 
-def get_auth():
-    # Pick a random profile and try the dispenser directly
-    pool = ARM64_PROFILES if arch_flag == "arm64" else ARMV7_PROFILES
-    if pool:
-        shuffled = list(pool)
-        random.shuffle(shuffled)
-        for name, profile in shuffled:
-            try:
-                import httpx
-                resp = httpx.post(
-                    "https://auroraoss.com/api/auth",
-                    json=profile, headers={
-                        "User-Agent": "com.aurora.store-4.6.1-70",
-                        "Content-Type": "application/json",
-                    }, timeout=30
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("authToken"):
-                        return data
-            except httpx.RequestError:
-                continue
-            except json.JSONDecodeError:
-                continue
-    # Fallback: gplaydl's priority-ordered cache + dispenser
-    a = ensure_auth(arch=arch_flag)
-    if a is None:
-        sys.exit(1)
-    return a
+a = ensure_auth(arch=arch_flag)
+if a is None:
+    sys.exit(1)
 
-def do():
-    a = get_auth()
-    det = get_details(pkg, a)
-    vc = det.version_code
-    purchase(pkg, vc, a)
-    d = get_delivery(pkg, vc, a)
-    out = {"version_code": vc, "title": det.title,
-        "download_url": d.download_url, "download_size": d.download_size,
-        "cookies": [{"name":c["name"],"value":c["value"]} for c in d.cookies],
-        "splits": [{"name":s.name,"url":s.url,"size":s.size} for s in d.splits],
-        "additional_files": [{"file_type":af.file_type,"version_code":af.version_code,
-            "size":af.size,"url":af.url,"gzipped":af.gzipped,
-            "cookies":af.cookies,"type_label":af.type_label,"extension":af.extension} for af in d.additional_files]}
-    return out
-
-try:
-    out = do()
-except AuthExpiredError:
-    # Force fresh token on retry
-    from gplaydl.auth import clear_auth
-    clear_auth()
-    try:
-        out = do()
-    except (AuthExpiredError, PlayAPIError) as e:
-        print(f"ERROR:{e}",file=sys.stderr);sys.exit(1)
-except PlayAPIError as e:
-    print(f"ERROR:{e}",file=sys.stderr);sys.exit(1)
+det = get_details(pkg, a)
+vc = det.version_code
+purchase(pkg, vc, a)
+d = get_delivery(pkg, vc, a)
+out = {"version_code": vc, "title": det.title,
+    "download_url": d.download_url, "download_size": d.download_size,
+    "cookies": [{"name":c["name"],"value":c["value"]} for c in d.cookies],
+    "splits": [{"name":s.name,"url":s.url,"size":s.size} for s in d.splits],
+    "additional_files": [{"file_type":af.file_type,"version_code":af.version_code,
+        "size":af.size,"url":af.url,"gzipped":af.gzipped,
+        "cookies":af.cookies,"type_label":af.type_label,"extension":af.extension} for af in d.additional_files]}
 json.dump(out,sys.stdout)
 "#;
     let out = Command::new(python)

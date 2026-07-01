@@ -145,7 +145,7 @@ fn run_cli(client: &Client, cfg: &config::Config, args: &[String]) -> Result<(),
             }
             Err(e) => {
                 sp.finish_and_clear();
-                println!(" ✗");
+                println!(" ✗ {e}");
                 last_err = e;
             }
         }
