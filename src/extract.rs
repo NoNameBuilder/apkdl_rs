@@ -66,7 +66,26 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
         let sd = work.path().join("split");
         if sd.exists() { fs::remove_dir_all(&sd).ok(); }
         if run_status(Command::new("apktool").args(["d", "-f", &sp.to_string_lossy(), "-o", &sd.to_string_lossy()])).is_err() {
-            log.push(format!("  Skipped (not a mergeable split)")); continue;
+            log.push(format!("  Extracting assets directly..."));
+            // Asset-only splits: unzip and copy assets/lib without decompiling
+            if let Ok(file) = File::open(sp) {
+                if let Ok(mut zip) = zip::ZipArchive::new(file) {
+                    for i in 0..zip.len() {
+                        if let Ok(mut entry) = zip.by_index(i) {
+                            let name = entry.name().to_string();
+                            let out_path = sd.join(&name);
+                            if entry.is_dir() { fs::create_dir_all(&out_path).ok(); continue; }
+                            if let Some(p) = out_path.parent() { fs::create_dir_all(p).ok(); }
+                            if let Ok(mut f) = File::create(&out_path) { io::copy(&mut entry, &mut f).ok(); }
+                        }
+                    }
+                }
+            }
+            // still copy assets/lib if any were extracted
+            for folder in &["lib", "assets", "unknown"] {
+                let src = sd.join(folder); if src.exists() { let dst = base_dir.join(folder); if dst.exists() { fs::remove_dir_all(&dst).ok(); } cp_dir(&src, &dst).ok(); }
+            }
+            continue;
         }
         for ent in walkdir(&sd).into_iter().filter(|e| e.to_string_lossy().contains("smali")) {
             let rel = ent.strip_prefix(&sd).unwrap(); let dst = base_dir.join(rel);
