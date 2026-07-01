@@ -163,17 +163,25 @@ json.dump(out,sys.stdout)
         }
     }
 
-    // If there are splits, save directory. Otherwise single APK.
-    let base_path = dl_dir.join("base.apk");
-    let has_splits = dl_dir.read_dir().map(|e| e.filter_map(|e| e.ok()).filter(|e| e.path() != base_path).count() > 0).unwrap_or(false);
-    if has_splits {
-        log.push(format!("Saved {} split APKs", dl_dir.read_dir().map(|e| e.count()).unwrap_or(0)));
-        Ok(())
-    } else if base_path.exists() {
-        fs::copy(&base_path, tmp).map_err(|e| format!("copy: {e}"))?;
-        Ok(())
-    } else {
-        Err("no APK files downloaded".into())
+    // Merge splits into single APK (or copy base if no splits)
+    let merged_tmp = dl_dir.join(".merged.apk");
+    match crate::extract::merge_apk_dir(&dl_dir, &merged_tmp, arch, log) {
+        Ok(()) => {
+            if dl_dir.is_dir() { fs::remove_dir_all(dl_dir).ok(); }
+            fs::rename(&merged_tmp, tmp).map_err(|e| format!("rename: {e}"))?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&merged_tmp);
+            // Merge failed — keep raw splits at dl_dir, rename to tmp
+            log.push(format!("Merge failed ({}), saving raw splits", e));
+            if dl_dir.is_dir() {
+                fs::rename(dl_dir, tmp).map_err(|e| format!("rename splits: {e}"))?;
+            } else {
+                return Err("no APK files downloaded".into());
+            }
+            Ok(())
+        }
     }
 }
 
