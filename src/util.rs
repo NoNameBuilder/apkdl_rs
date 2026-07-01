@@ -5,7 +5,6 @@ use std::process::Command;
 use reqwest::blocking::Client;
 
 pub const VENV_PYTHON: &str = "/tmp/apkdl_venv/bin/python3";
-pub const TEMP_PREFIX: &str = "apkdl_";
 pub const ARCHES: &[&str] = &["arm64_v8a", "armeabi_v7a", "x86_64", "x86"];
 
 pub fn as_str(b: &[u8]) -> Cow<'_, str> {

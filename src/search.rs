@@ -7,6 +7,7 @@ use crate::util::{as_str, fetch_bytes};
 
 pub struct Version {
     pub label: String,
+    #[allow(dead_code)]
     pub url: String,
 }
 

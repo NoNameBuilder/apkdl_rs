@@ -3,14 +3,12 @@ mod download;
 mod extract;
 mod http;
 mod search;
-mod tui;
 mod update;
 mod util;
 
 use std::path::{Path, PathBuf};
 
 use clap::{Arg, ArgAction, Command as ClapCmd};
-use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::blocking::Client;
 
 use crate::config::load_config;
@@ -31,7 +29,6 @@ fn main() {
         .arg(Arg::new("arch").long("arch").help("Architecture filter").num_args(1))
         .arg(Arg::new("source").long("source").help("Force source: gplay, apkmirror, apkpure").num_args(1))
         .arg(Arg::new("list").short('l').long("list").help("List available versions").action(ArgAction::SetTrue))
-        .arg(Arg::new("no-tui").long("no-tui").help("Run CLI mode").action(ArgAction::SetTrue))
         .get_matches();
 
     if matches.get_flag("install") || matches.get_flag("update") {
@@ -44,19 +41,9 @@ fn main() {
 
     let timeout = cfg.timeout_secs.unwrap_or(7200);
     let client = build_http(timeout).unwrap_or_else(|e| { eprintln!("{e}"); std::process::exit(1); });
-    let apps: Vec<String> = matches.get_many("apps").unwrap_or_default().cloned().collect();
 
-    if matches.get_flag("no-tui") || !apps.is_empty() {
-        if let Err(e) = run_cli(&client, &matches) {
-            eprintln!("✗ {e}");
-            std::process::exit(1);
-        }
-        return;
-    }
-
-    let app = crate::tui::App::new(client, cfg);
-    if let Err(e) = crate::tui::run_tui(app) {
-        eprintln!("TUI error: {e}");
+    if let Err(e) = run_cli(&client, &matches) {
+        eprintln!("✗ {e}");
         std::process::exit(1);
     }
 }
@@ -179,13 +166,10 @@ fn download_app(
         let (name, func) = sources[idx];
         print!("  {name}...");
         std::io::Write::flush(&mut std::io::stdout()).unwrap_or(());
-        let sp = ProgressBar::new_spinner();
-        sp.set_style(ProgressStyle::default_spinner());
-        let staging = out_name.with_extension(name.to_lowercase());
+        let staging = out_name.with_extension(name.to_lowercase().replace(' ', "-"));
 
         match func(client, pkg, &staging, arch, None, &mut Vec::new()) {
             Ok(()) => {
-                sp.finish_and_clear();
                 if staging.is_dir() {
                     let _ = std::fs::remove_dir_all(&out_name);
                     std::fs::rename(&staging, &out_name).unwrap_or(());
@@ -193,7 +177,6 @@ fn download_app(
                     let _ = std::fs::remove_file(&out_name);
                     std::fs::rename(&staging, &out_name).unwrap_or(());
                 }
-                println!(" ✓");
                 if out_name.is_dir() {
                     let mut total = 0u64;
                     let mut count = 0u64;
@@ -202,19 +185,17 @@ fn download_app(
                         total += std::fs::metadata(e.path()).map(|m| m.len()).unwrap_or(0);
                     }
                     if count > 1 {
-                        println!("  ✓ {} ({:.1} MB, {} files — use `adb install-multiple {}/base.apk` )",
-                            out_name.display(), total as f64 / 1_000_000.0, count, out_name.display());
+                        println!(" ✓ ({:.1} MB, {} files)", total as f64 / 1_000_000.0, count);
                     } else {
-                        println!("  ✓ {} ({:.1} MB)", out_name.display(), total as f64 / 1_000_000.0);
+                        println!(" ✓ ({:.1} MB)", total as f64 / 1_000_000.0);
                     }
                 } else if out_name.exists() {
                     let sz = std::fs::metadata(&out_name).map(|m| m.len()).unwrap_or(0);
-                    println!("  ✓ {} ({:.1} MB)", out_name.display(), sz as f64 / 1_000_000.0);
+                    println!(" ✓ ({:.1} MB)", sz as f64 / 1_000_000.0);
                 }
                 return Ok(());
             }
             Err(e) => {
-                sp.finish_and_clear();
                 if staging.is_dir() { let _ = std::fs::remove_dir_all(&staging); }
                 else { let _ = std::fs::remove_file(&staging); }
                 println!(" ✗ {e}");
