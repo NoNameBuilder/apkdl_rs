@@ -16,7 +16,13 @@ pub fn search_play(client: &Client, query: &str) -> Vec<(String, String)> {
     let text = as_str(&html); let mut seen = HashSet::new(); let mut results = vec![];
     for pat in &[r#"aria-label="([^"]*)"[^>]*href="/store/apps/details\?id=([^"&]+)""#, r#"href="/store/apps/details\?id=([^"&]+)"[^>]*aria-label="([^"]*)""#, r#"data-title="([^"]+)"[^>]*href="/store/apps/details\?id=([^"&]+)""#] {
         let r = regex::Regex::new(pat).unwrap();
-        for c in r.captures_iter(&text) { let p = c[2].trim().to_string(); let t = c[1].trim().to_string(); if seen.insert(p.clone()) && !t.is_empty() { results.push((t, p)); } }
+        for c in r.captures_iter(&text) {
+            let mut t = c[1].trim().to_string();
+            let mut p = c[2].trim().to_string();
+            // pattern 2 has groups reversed — detect and fix
+            if !p.contains('.') && t.contains('.') { std::mem::swap(&mut t, &mut p); }
+            if seen.insert(p.clone()) && !t.is_empty() { results.push((t, p)); }
+        }
     }
     let r = regex::Regex::new(r#"href="/store/apps/details\?id=([^"&]+)""#).unwrap();
     for c in r.captures_iter(&text) { let p = c[1].trim().to_string(); if seen.insert(p.clone()) { let name = p.split('.').last().unwrap_or(&p).replace('-', " ").replace('_', " "); let t = name.chars().next().map(|x| x.to_uppercase().collect::<String>() + &name[1..]).unwrap_or(name); results.push((t, p)); } }
