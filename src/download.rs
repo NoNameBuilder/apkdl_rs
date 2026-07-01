@@ -164,8 +164,24 @@ json.dump(out,sys.stdout)
     }
 
     // Merge splits into a single APK (or copy base if no splits)
-    crate::extract::merge_apk_dir(&dl_dir, tmp, arch, log)?;
-    Ok(())
+    match crate::extract::merge_apk_dir(&dl_dir, tmp, arch, log) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Merge failed — save raw splits at tmp path as a directory
+            log.push(format!("Merge failed ({}), saving raw splits to {}", e, tmp.display()));
+            let _ = fs::remove_file(tmp); // remove stale file path
+            fs::create_dir_all(tmp).ok();
+            if let Ok(entries) = fs::read_dir(&dl_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|x| x.to_str()) == Some("apk") {
+                        fs::copy(&path, tmp.join(entry.file_name())).ok();
+                    }
+                }
+            }
+            Ok(()) // return success — raw splits available at tmp
+        }
+    }
 }
 
 pub fn dl_apkpure(client: &Client, pkg: &str, tmp: &Path, arch: &str, version_url: Option<&str>, log: &mut Vec<String>) -> Result<(), String> {

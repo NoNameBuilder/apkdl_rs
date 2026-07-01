@@ -181,7 +181,7 @@ fn download_app(
         sp.set_style(ProgressStyle::default_spinner());
         let src_tmp = tmp_root.join(format!("{}_tmp", name.replace(' ', "_").to_lowercase()));
         match func(client, pkg, &src_tmp, arch, None, &mut Vec::new()) {
-            Ok(()) => { sp.finish_and_clear(); println!(" ✓"); last_err.clear(); if src_tmp.exists() { std::fs::copy(&src_tmp, &tmp).ok(); } }
+            Ok(()) => { sp.finish_and_clear(); println!(" ✓"); last_err.clear(); if src_tmp.is_dir() { let _ = std::fs::remove_dir_all(&tmp); let _ = crate::extract::cp_dir(&src_tmp, &tmp); } else if src_tmp.exists() { std::fs::copy(&src_tmp, &tmp).ok(); } }
             Err(e) => { sp.finish_and_clear(); println!(" ✗ {e}"); last_err = e; }
         }
     } else {
@@ -192,7 +192,7 @@ fn download_app(
             sp.set_style(ProgressStyle::default_spinner());
             let src_tmp = tmp_root.join(format!("{}_tmp", name.replace(' ', "_").to_lowercase()));
             match func(client, pkg, &src_tmp, arch, None, &mut Vec::new()) {
-                Ok(()) => { sp.finish_and_clear(); println!(" ✓"); last_err.clear(); if src_tmp.exists() { std::fs::copy(&src_tmp, &tmp).ok(); } break; }
+                Ok(()) => { sp.finish_and_clear(); println!(" ✓"); last_err.clear(); if src_tmp.is_dir() { let _ = std::fs::remove_dir_all(&tmp); let _ = crate::extract::cp_dir(&src_tmp, &tmp); } else if src_tmp.exists() { std::fs::copy(&src_tmp, &tmp).ok(); } break; }
                 Err(e) => { sp.finish_and_clear(); println!(" ✗ {e}"); last_err = e; }
             }
         }
@@ -201,8 +201,15 @@ fn download_app(
     if !last_err.is_empty() { return Err(last_err); }
 
     if let Some(p) = out_name.parent() { let _ = std::fs::create_dir_all(p); }
-    std::fs::copy(&tmp, &out_name).map_err(|e| format!("write {}: {e}", out_name.display()))?;
-    let sz = std::fs::metadata(&out_name).map(|m| m.len()).unwrap_or(0);
-    println!("  ✓ {} ({:.1} MB)", out_name.display(), sz as f64 / 1_000_000.0);
+    if tmp.is_dir() {
+        // Output is a directory of split APKs (merge failed/skipped)
+        let _ = std::fs::remove_dir_all(&out_name);
+        crate::extract::cp_dir(&tmp, &out_name).ok();
+        println!("  ✓ {} ({} files)", out_name.display(), std::fs::read_dir(&out_name).map(|e| e.count()).unwrap_or(0));
+    } else {
+        std::fs::copy(&tmp, &out_name).map_err(|e| format!("write {}: {e}", out_name.display()))?;
+        let sz = std::fs::metadata(&out_name).map(|m| m.len()).unwrap_or(0);
+        println!("  ✓ {} ({:.1} MB)", out_name.display(), sz as f64 / 1_000_000.0);
+    }
     Ok(())
 }
