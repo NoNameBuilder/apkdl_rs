@@ -128,7 +128,7 @@ json.dump(out,sys.stdout)
 
     let mut urls: Vec<(String, PathBuf)> = vec![];
     if let Some(base_url) = val["download_url"].as_str() {
-        urls.push((base_url.to_string(), dl_dir.join(format!("{pkg}-{vc}.apk"))));
+        urls.push((base_url.to_string(), dl_dir.join("base.apk")));
     }
     if let Some(splits) = val["splits"].as_array() {
         for s in splits {

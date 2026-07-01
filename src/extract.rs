@@ -36,7 +36,7 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
         let p = e.path();
         if p.extension().and_then(|x| x.to_str()) != Some("apk") { continue; }
         let name = e.file_name().to_string_lossy().to_string();
-        if name == "base.apk" || (!name.contains("split") && !name.contains("config")) { base = Some(p); }
+        if name == "base.apk" { base = Some(p); }
         else {
             if let Some(a) = apk_arch(&name) { if a != arch_filter { continue; } }
             splits.push(p);
