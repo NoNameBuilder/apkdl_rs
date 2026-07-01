@@ -195,8 +195,18 @@ fn download_app(
                 }
                 println!(" ✓");
                 if out_name.is_dir() {
-                    let count = std::fs::read_dir(&out_name).map(|e| e.count()).unwrap_or(0);
-                    println!("  ✓ {} ({} files)", out_name.display(), count);
+                    let mut total = 0u64;
+                    let mut count = 0u64;
+                    for e in std::fs::read_dir(&out_name).into_iter().flatten().flatten() {
+                        count += 1;
+                        total += std::fs::metadata(e.path()).map(|m| m.len()).unwrap_or(0);
+                    }
+                    if count > 1 {
+                        println!("  ✓ {} ({:.1} MB, {} files — use `adb install-multiple {}/base.apk` )",
+                            out_name.display(), total as f64 / 1_000_000.0, count, out_name.display());
+                    } else {
+                        println!("  ✓ {} ({:.1} MB)", out_name.display(), total as f64 / 1_000_000.0);
+                    }
                 } else if out_name.exists() {
                     let sz = std::fs::metadata(&out_name).map(|m| m.len()).unwrap_or(0);
                     println!("  ✓ {} ({:.1} MB)", out_name.display(), sz as f64 / 1_000_000.0);
