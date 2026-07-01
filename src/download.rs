@@ -114,7 +114,7 @@ json.dump(out,sys.stdout)
     let title = val["title"].as_str().unwrap_or(pkg);
     log.push(format!("Google Play: {} (vc {})", title, vc));
 
-    let dl_dir = tmp.parent().unwrap_or(tmp).join("gplay_splits");
+    let dl_dir = tmp.to_path_buf();
     fs::create_dir_all(&dl_dir).ok();
 
     let cookie_hdr = {
@@ -163,23 +163,18 @@ json.dump(out,sys.stdout)
         }
     }
 
-    // Merge splits into a single APK (or copy base if no splits)
-    match crate::extract::merge_apk_dir(&dl_dir, tmp, arch, log) {
-        Ok(()) => Ok(()),
+    // Merge splits — write to temp file, replace output dir on success
+    let merged_tmp = tmp.with_extension("merged_tmp");
+    match crate::extract::merge_apk_dir(&dl_dir, &merged_tmp, arch, log) {
+        Ok(()) => {
+            if dl_dir.is_dir() { fs::remove_dir_all(dl_dir).ok(); }
+            fs::rename(&merged_tmp, tmp).map_err(|e| format!("rename: {e}"))?;
+            Ok(())
+        }
         Err(e) => {
-            // Merge failed — save raw splits at tmp path as a directory
-            log.push(format!("Merge failed ({}), saving raw splits to {}", e, tmp.display()));
-            let _ = fs::remove_file(tmp); // remove stale file path
-            fs::create_dir_all(tmp).ok();
-            if let Ok(entries) = fs::read_dir(&dl_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|x| x.to_str()) == Some("apk") {
-                        fs::copy(&path, tmp.join(entry.file_name())).ok();
-                    }
-                }
-            }
-            Ok(()) // return success — raw splits available at tmp
+            let _ = fs::remove_file(&merged_tmp);
+            log.push(format!("Merge failed, raw splits at {}", tmp.display()));
+            Ok(())
         }
     }
 }
