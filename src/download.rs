@@ -167,8 +167,11 @@ json.dump(out,sys.stdout)
     let merged_tmp = dl_dir.join(".merged.apk");
     match crate::extract::merge_apk_dir(&dl_dir, &merged_tmp, arch, log) {
         Ok(()) => {
+            // Move merged APK out of dl_dir first, then remove the split dir
+            let merged_out = tmp.with_extension(".merged.apk");
+            fs::rename(&merged_tmp, &merged_out).ok();
             if dl_dir.is_dir() { fs::remove_dir_all(dl_dir).ok(); }
-            fs::rename(&merged_tmp, tmp).map_err(|e| format!("rename: {e}"))?;
+            fs::rename(&merged_out, tmp).map_err(|e| format!("rename: {e}"))?;
             Ok(())
         }
         Err(e) => {

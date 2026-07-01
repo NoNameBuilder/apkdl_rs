@@ -56,7 +56,12 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
         Err(_) => { fs::copy(&base, out).map_err(|e| format!("copy: {e}"))?; return Ok(()); }
     };
     let base_dir = work.path().join("base");
-    let base_ok = run_status(Command::new("apktool").args(["d", "-f", &base.to_string_lossy(), "-o", &base_dir.to_string_lossy()]));
+    let base_ok = {
+        let mut cmd = Command::new("apktool");
+        cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
+        cmd.args(["d", "-f", &base.to_string_lossy(), "-o", &base_dir.to_string_lossy()]);
+        run_status(&mut cmd)
+    };
     if base_ok.is_err() {
         log.push("Base APK cannot be merged — saving only base".into());
         fs::copy(&base, out).map_err(|e| format!("copy: {e}"))?; return Ok(());
@@ -65,7 +70,13 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
         log.push(format!("Split {}/{}: {}", i + 1, splits.len(), sp.file_name().unwrap().to_string_lossy()));
         let sd = work.path().join("split");
         if sd.exists() { fs::remove_dir_all(&sd).ok(); }
-        if run_status(Command::new("apktool").args(["d", "-f", &sp.to_string_lossy(), "-o", &sd.to_string_lossy()])).is_err() {
+        let split_ok = {
+            let mut cmd = Command::new("apktool");
+            cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
+            cmd.args(["d", "-f", &sp.to_string_lossy(), "-o", &sd.to_string_lossy()]);
+            run_status(&mut cmd)
+        };
+        if split_ok.is_err() {
             log.push(format!("  Extracting assets directly..."));
             // Asset-only splits: unzip and copy assets/lib without decompiling
             if let Ok(file) = File::open(sp) {
@@ -98,7 +109,12 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
     }
     log.push("Rebuilding...".into());
     let merged = work.path().join("merged-unsigned.apk");
-    run_status(Command::new("apktool").args(["b", "-f", &base_dir.to_string_lossy(), "-o", &merged.to_string_lossy()]))?;
+    {
+        let mut cmd = Command::new("apktool");
+        cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
+        cmd.args(["b", "-f", &base_dir.to_string_lossy(), "-o", &merged.to_string_lossy()]);
+        run_status(&mut cmd)?;
+    }
     log.push("Signing...".into());
     let ks_path = std::env::temp_dir().join("apkdl_debug.keystore");
     if !ks_path.exists() {
