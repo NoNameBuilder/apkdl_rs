@@ -8,6 +8,19 @@ use zip::ZipArchive;
 
 use crate::util::{run_quiet, run_status, ARCHES};
 
+/// Find APKEditor.jar next to the binary or in current dir
+fn apkeditor_path() -> PathBuf {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let candidates = [
+        exe.parent().map(|p| p.join("APKEditor.jar")),
+        Some(PathBuf::from("APKEditor.jar")),
+    ];
+    for c in candidates.iter().flatten() {
+        if c.exists() { return c.clone(); }
+    }
+    PathBuf::from("APKEditor.jar")
+}
+
 pub fn extract_apkm(path: &Path, out: &Path, arch_filter: &str, log: &mut Vec<String>) -> Result<(), String> {
     let tmp = TempDir::new().map_err(|e| format!("tmpdir: {e}"))?;
     let dir = tmp.path();
@@ -48,97 +61,36 @@ pub fn merge_apk_dir(dir: &Path, out: &Path, arch_filter: &str, log: &mut Vec<St
         splits = apks.iter().skip(1).map(|e| e.path()).collect();
     }
     let base = base.ok_or_else(|| "no APK found in bundle".to_string())?;
+
+    // No splits — just copy base
     if splits.is_empty() { fs::copy(&base, out).map_err(|e| format!("copy: {e}"))?; return Ok(()); }
 
-    log.push(format!("Merging {} split(s)...", splits.len()));
-    let work = match TempDir::new() {
-        Ok(t) => t,
-        Err(_) => { fs::copy(&base, out).map_err(|e| format!("copy: {e}"))?; return Ok(()); }
-    };
-    let base_dir = work.path().join("base");
-        let base_ok = {
-            let mut cmd = Command::new("apktool");
-            cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
-            cmd.args(["d", "-f", &base.to_string_lossy(), "-o", &base_dir.to_string_lossy()]);
-            run_quiet(&mut cmd)
-        };
-    if base_ok.is_err() {
-        log.push("Base APK cannot be merged — saving only base".into());
+    // Use APKEditor.jar to merge splits at binary level
+    let jar = apkeditor_path();
+    if !jar.exists() {
+        log.push("APKEditor.jar not found — saving base only".into());
         fs::copy(&base, out).map_err(|e| format!("copy: {e}"))?; return Ok(());
     }
-    for (i, sp) in splits.iter().enumerate() {
-        log.push(format!("Split {}/{}: {}", i + 1, splits.len(), sp.file_name().unwrap().to_string_lossy()));
-        let sd = work.path().join("split");
-        if sd.exists() { fs::remove_dir_all(&sd).ok(); }
-        let split_ok = {
-            let mut cmd = Command::new("apktool");
-            cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
-            cmd.args(["d", "-f", &sp.to_string_lossy(), "-o", &sd.to_string_lossy()]);
-            run_quiet(&mut cmd)
-        };
-        if split_ok.is_err() {
-            log.push(format!("  Extracting assets directly..."));
-            // Asset-only splits: unzip and copy assets/lib without decompiling
-            if let Ok(file) = File::open(sp) {
-                if let Ok(mut zip) = zip::ZipArchive::new(file) {
-                    for i in 0..zip.len() {
-                        if let Ok(mut entry) = zip.by_index(i) {
-                            let name = entry.name().to_string();
-                            let out_path = sd.join(&name);
-                            if entry.is_dir() { fs::create_dir_all(&out_path).ok(); continue; }
-                            if let Some(p) = out_path.parent() { fs::create_dir_all(p).ok(); }
-                            if let Ok(mut f) = File::create(&out_path) { io::copy(&mut entry, &mut f).ok(); }
-                        }
-                    }
-                }
-            }
-            // still copy assets/lib if any were extracted
-            for folder in &["lib", "assets", "unknown"] {
-                let src = sd.join(folder); if src.exists() { let dst = base_dir.join(folder); if dst.exists() { fs::remove_dir_all(&dst).ok(); } cp_dir(&src, &dst).ok(); }
-            }
-            continue;
-        }
-        for ent in walkdir(&sd).into_iter().filter(|e| e.to_string_lossy().contains("smali")) {
-            let rel = ent.strip_prefix(&sd).unwrap(); let dst = base_dir.join(rel);
-            if ent.is_dir() { fs::create_dir_all(&dst).ok(); }
-            else { if let Some(p) = dst.parent() { fs::create_dir_all(p).ok(); } fs::copy(&ent, &dst).ok(); }
-        }
-        for folder in &["lib", "assets", "unknown"] {
-            let src = sd.join(folder); if src.exists() { let dst = base_dir.join(folder); if dst.exists() { fs::remove_dir_all(&dst).ok(); } cp_dir(&src, &dst).ok(); }
-        }
-    }
-    log.push("Rebuilding...".into());
-    let merged = work.path().join("merged-unsigned.apk");
-    {
-        let mut cmd = Command::new("apktool");
-        cmd.env("JAVA_OPTS", "-Xmx4G -Xms512M");
-        cmd.args(["b", "-f", &base_dir.to_string_lossy(), "-o", &merged.to_string_lossy()]);
-        run_quiet(&mut cmd)?;
-    }
+
+    log.push(format!("Merging {} split(s) with APKEditor...", splits.len()));
+    let mut merge_cmd = Command::new("java");
+    merge_cmd.arg("-jar").arg(&jar);
+    merge_cmd.args(["m", "-i", &dir.to_string_lossy(), "-o", &out.to_string_lossy(), "-f", "-extractNativeLibs", "false"]);
+    run_quiet(&mut merge_cmd)?;
+
+    // Sign the merged APK
     log.push("Signing...".into());
     let ks_path = std::env::temp_dir().join("apkdl_debug.keystore");
     if !ks_path.exists() {
         run_status(Command::new("keytool").args(["-genkeypair", "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-keystore", &ks_path.to_string_lossy(), "-storepass", "android", "-keypass", "android", "-dname", "CN=Android Debug,O=Android,C=US"]))?;
     }
-    let sign_result = run_status(Command::new("apksigner").args(["sign", "--ks", &ks_path.to_string_lossy(), "--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android", "--key-pass", "pass:android", &merged.to_string_lossy()]));
+    let sign_result = run_status(Command::new("apksigner").args(["sign", "--ks", &ks_path.to_string_lossy(), "--ks-key-alias", "androiddebugkey", "--ks-pass", "pass:android", "--key-pass", "pass:android", &out.to_string_lossy()]));
     if sign_result.is_err() {
         log.push("apksigner not found, trying jarsigner...".into());
-        let jar_result = run_status(Command::new("jarsigner").args(["-sigalg", "SHA1withRSA", "-digestalg", "SHA1", "-keystore", &ks_path.to_string_lossy(), "-storepass", "android", "-keypass", "android", &merged.to_string_lossy(), "androiddebugkey"]));
+        let jar_result = run_status(Command::new("jarsigner").args(["-sigalg", "SHA1withRSA", "-digestalg", "SHA1", "-keystore", &ks_path.to_string_lossy(), "-storepass", "android", "-keypass", "android", &out.to_string_lossy(), "androiddebugkey"]));
         if jar_result.is_err() {
-            log.push("Warning: signing failed — output is unsigned.".into());
+            log.push("Warning: signing failed — output may not install.".into());
         }
     }
-    fs::copy(&merged, out).map_err(|e| format!("copy result: {e}"))?;
     Ok(())
-}
-
-pub fn walkdir(dir: &Path) -> Vec<PathBuf> {
-    let mut res = vec![]; if !dir.exists() { return res; }
-    fn walk(d: &Path, acc: &mut Vec<PathBuf>) { if let Ok(entries) = fs::read_dir(d) { for e in entries.flatten() { acc.push(e.path()); if e.path().is_dir() { walk(&e.path(), acc); } } } }
-    walk(dir, &mut res); res
-}
-
-pub fn cp_dir(src: &Path, dst: &Path) -> io::Result<()> {
-    if !src.exists() { return Ok(()); }
-    for e in src.read_dir()? { let e = e?; let target = dst.join(e.file_name()); if e.path().is_dir() { fs::create_dir_all(&target)?; cp_dir(&e.path(), &target)?; } else { fs::copy(&e.path(), &target)?; } } Ok(())
 }

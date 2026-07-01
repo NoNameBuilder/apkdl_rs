@@ -178,11 +178,11 @@ json.dump(out,sys.stdout)
             fs::rename(&merged_out, tmp).map_err(|e| format!("rename: {e}"))?;
             Ok(())
         }
-        Err(e) => {
+        Err(_) => {
             let _ = fs::remove_file(&merged_tmp);
             // Merge failed — save raw splits as directory
             let _ = fs::remove_file(tmp);
-            if dl_dir.is_dir() { fs::rename(dl_dir, tmp).map_err(|e| format!("rename splits: {e}"))?; }
+            if dl_dir.is_dir() { fs::rename(dl_dir, tmp).map_err(|_| format!("rename splits failed"))?; }
             log.push(format!("Merge failed, raw splits at {}", tmp.display()));
             Ok(())
         }
